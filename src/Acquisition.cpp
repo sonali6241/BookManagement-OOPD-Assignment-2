@@ -24,6 +24,7 @@ void AcquisitionManager::setTaxRates(int printPercent, int electronicPercent) {
 Budget& AcquisitionManager::addDepartmentBudget(const std::string& department,
                                                  Money total) {
     if (department.empty()) throw std::invalid_argument("department name must not be empty");
+    (void)(total + budget_.total());
     auto result = departments_.emplace(department, Budget(total));
     if (!result.second) throw std::invalid_argument("department already exists: " + department);
     return result.first->second;
@@ -54,6 +55,7 @@ void AcquisitionManager::addVendorOffer(const std::string& resourceId,
     Resource& resource = catalog_.get(resourceId);
     if (vendor.empty()) throw std::invalid_argument("vendor name must not be empty");
     if (unitPrice.isNegative()) throw std::invalid_argument("vendor price must not be negative");
+    (void)(unitPrice + resource.unitPrice());
     auto& offers = vendorOffers_[resourceId];
     auto existing = std::find_if(offers.begin(), offers.end(), [&](const VendorOffer& offer) {
         return offer.vendor == vendor;
