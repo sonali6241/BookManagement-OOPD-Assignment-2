@@ -2,6 +2,7 @@
 // and runs a batch of purchase requests through the acquisition manager.
 
 #include <iostream>
+#include <stdexcept>
 
 #include "bookmgmt/bookmgmt.h"
 
@@ -14,6 +15,8 @@ static void demonstrateAssignmentExtensions() {
                           "978-0001", "Press", 2022, Money::of(100));
     catalog.emplace<ElectronicResource>("D1", "Digital Library", "Publisher", 2024,
                                         Money::of(10), "https://example.test");
+    catalog.emplace<Book>("P2", "Design Patterns", std::vector<std::string>{"B. Author"},
+                          "978-0002", "Press", 2019, Money::of(25));
     Budget general(Money::of(2000));
     general.setQuota(ResourceCategory::Book, {10, Money::of(1000), 2});
     general.setQuota(ResourceCategory::ElectronicResource, {10, Money::of(1000), 2});
@@ -21,12 +24,20 @@ static void demonstrateAssignmentExtensions() {
     manager.setTaxRates(5, 18);
     manager.addVendorOffer("P1", "Vendor A", Money::of(95));
     manager.addVendorOffer("P1", "Vendor B", Money::of(90));
+    for (const auto& offer : manager.vendorsFor("P1"))
+        std::cout << "Vendor offer: " << offer.vendor << " at " << offer.unitPrice << "\n";
     Budget& department = manager.addDepartmentBudget("Computer Science", Money::of(500));
     department.setQuota(ResourceCategory::Book, {5, Money::of(500), 1});
     std::cout << "P1 pre-tax quote for 2: " << manager.quote("P1", 2)
               << "; after tax: " << manager.quoteAfterTax("P1", 2) << "\n";
     const int order = manager.purchase("P1", 2, "Computer Science").orderNo;
     std::cout << "Selected vendor: " << manager.history().back().vendor << "\n";
+    std::string titleLimitReason;
+    const bool differentTitleAllowed = manager.canPurchase(
+        "P2", 1, &titleLimitReason, "Computer Science");
+    std::cout << "Different-title purchase allowed: "
+              << (differentTitleAllowed ? "yes" : "no")
+              << " (" << titleLimitReason << ")\n";
     manager.cancel(order);
     std::cout << "Cancellation refunded the department budget: "
               << manager.departmentBudget("Computer Science").spent() << " spent\n";
@@ -56,6 +67,12 @@ static void demonstrateAssignmentExtensions() {
     thisYear.commit(ResourceCategory::Book, 2, Money::of(200), "P1");
     std::cout << "Next-year budget after 50% rollover: "
               << thisYear.rollover(50).total() << "\n";
+
+    try {
+        (void)(Money::of(1) + Money::of(1, 0, "USD"));
+    } catch (const std::invalid_argument& error) {
+        std::cout << "Mixed-currency addition rejected: " << error.what() << "\n";
+    }
 }
 
 int main() {
