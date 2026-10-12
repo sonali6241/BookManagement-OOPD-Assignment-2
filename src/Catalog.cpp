@@ -1,6 +1,5 @@
 #include "bookmgmt/Catalog.h"
 
-#include <algorithm>
 #include <cctype>
 #include <stdexcept>
 #include <utility>
@@ -14,8 +13,9 @@ namespace bookmgmt {
 
 namespace {
 std::string lower(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    for (std::size_t i = 0; i < value.size(); ++i)
+        value[i] = static_cast<char>(std::tolower(
+            static_cast<unsigned char>(value[i])));
     return value;
 }
 
@@ -89,58 +89,96 @@ std::vector<const Resource*> Catalog::where(
 }
 
 std::vector<const Resource*> Catalog::all() const {
-    return where([](const Resource&) { return true; });
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item)
+        results.push_back(item->second.resource.get());
+    return results;
 }
 
 std::vector<const Resource*> Catalog::byCategory(ResourceCategory category) const {
-    return where([category](const Resource& resource) {
-        return resource.category() == category;
-    });
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item) {
+        const Resource* resource = item->second.resource.get();
+        if (resource->category() == category) results.push_back(resource);
+    }
+    return results;
 }
 
 std::vector<const Resource*> Catalog::searchTitle(const std::string& text) const {
     const std::string needle = lower(text);
-    return where([&needle](const Resource& resource) {
-        return lower(resource.title()).find(needle) != std::string::npos;
-    });
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item) {
+        const Resource* resource = item->second.resource.get();
+        if (lower(resource->title()).find(needle) != std::string::npos)
+            results.push_back(resource);
+    }
+    return results;
 }
 
 std::vector<const Resource*> Catalog::searchAuthor(const std::string& text) const {
     const std::string needle = lower(text);
-    return where([&needle](const Resource& resource) {
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item) {
+        const Resource* resource = item->second.resource.get();
         const std::vector<std::string>* authors = nullptr;
-        if (const auto* book = dynamic_cast<const Book*>(&resource))
-            authors = &book->authors();
-        else if (const auto* ebook = dynamic_cast<const EBook*>(&resource))
-            authors = &ebook->authors();
-        if (!authors) return false;
-        return std::any_of(authors->begin(), authors->end(), [&](const std::string& author) {
-            return lower(author).find(needle) != std::string::npos;
-        });
-    });
+        const Book* book = dynamic_cast<const Book*>(resource);
+        const EBook* ebook = dynamic_cast<const EBook*>(resource);
+        if (book != nullptr) authors = &book->authors();
+        else if (ebook != nullptr) authors = &ebook->authors();
+
+        bool authorMatches = false;
+        if (authors != nullptr) {
+            for (std::size_t i = 0; i < authors->size(); ++i) {
+                if (lower((*authors)[i]).find(needle) != std::string::npos) {
+                    authorMatches = true;
+                    break;
+                }
+            }
+        }
+        if (authorMatches) results.push_back(resource);
+    }
+    return results;
 }
 
 std::vector<const Resource*> Catalog::searchIsbnIssn(const std::string& text) const {
     const std::string needle = lower(text);
-    return where([&needle](const Resource& resource) {
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item) {
+        const Resource* resource = item->second.resource.get();
         std::string identifier;
-        if (const auto* book = dynamic_cast<const Book*>(&resource))
+        const Book* book = dynamic_cast<const Book*>(resource);
+        const EBook* ebook = dynamic_cast<const EBook*>(resource);
+        const Journal* journal = dynamic_cast<const Journal*>(resource);
+        if (book != nullptr)
             identifier = book->isbn();
-        else if (const auto* ebook = dynamic_cast<const EBook*>(&resource))
+        else if (ebook != nullptr)
             identifier = ebook->isbn();
-        else if (const auto* journal = dynamic_cast<const Journal*>(&resource))
+        else if (journal != nullptr)
             identifier = journal->issn();
-        return !identifier.empty() && lower(identifier).find(needle) != std::string::npos;
-    });
+        if (!identifier.empty() &&
+            lower(identifier).find(needle) != std::string::npos)
+            results.push_back(resource);
+    }
+    return results;
 }
 
 std::vector<const Resource*> Catalog::byPublicationYearRange(int firstYear,
                                                              int lastYear) const {
     if (firstYear > lastYear)
         throw std::invalid_argument("first year must not exceed last year");
-    return where([firstYear, lastYear](const Resource& resource) {
-        return resource.year() >= firstYear && resource.year() <= lastYear;
-    });
+    std::vector<const Resource*> results;
+    for (std::map<std::string, Entry>::const_iterator item = items_.begin();
+         item != items_.end(); ++item) {
+        const Resource* resource = item->second.resource.get();
+        if (resource->year() >= firstYear && resource->year() <= lastYear)
+            results.push_back(resource);
+    }
+    return results;
 }
 
 int Catalog::borrowedCopies(const std::string& id) const {

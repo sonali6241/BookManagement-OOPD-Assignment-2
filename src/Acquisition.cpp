@@ -1,6 +1,5 @@
 #include "bookmgmt/Acquisition.h"
 
-#include <algorithm>
 #include <iomanip>
 #include <ostream>
 #include <stdexcept>
@@ -56,18 +55,30 @@ void AcquisitionManager::addVendorOffer(const std::string& resourceId,
     if (vendor.empty()) throw std::invalid_argument("vendor name must not be empty");
     if (unitPrice.isNegative()) throw std::invalid_argument("vendor price must not be negative");
     (void)(unitPrice + resource.unitPrice());
-    auto& offers = vendorOffers_[resourceId];
-    auto existing = std::find_if(offers.begin(), offers.end(), [&](const VendorOffer& offer) {
-        return offer.vendor == vendor;
-    });
-    if (existing == offers.end()) offers.push_back({std::move(vendor), unitPrice});
-    else existing->unitPrice = unitPrice;
-    const auto cheapest = std::min_element(offers.begin(), offers.end(),
-        [](const VendorOffer& left, const VendorOffer& right) {
-            return left.unitPrice < right.unitPrice;
-        });
-    resource.setUnitPrice(cheapest->unitPrice);
-    cheapestVendor_[resourceId] = cheapest->vendor;
+    std::vector<VendorOffer>& offers = vendorOffers_[resourceId];
+    int vendorIndex = -1;
+    for (std::size_t i = 0; i < offers.size(); ++i) {
+        if (offers[i].vendor == vendor) {
+            vendorIndex = static_cast<int>(i);
+            break;
+        }
+    }
+    if (vendorIndex == -1) {
+        VendorOffer offer;
+        offer.vendor = vendor;
+        offer.unitPrice = unitPrice;
+        offers.push_back(offer);
+    } else {
+        offers[static_cast<std::size_t>(vendorIndex)].unitPrice = unitPrice;
+    }
+
+    std::size_t cheapestIndex = 0;
+    for (std::size_t i = 1; i < offers.size(); ++i) {
+        if (offers[i].unitPrice < offers[cheapestIndex].unitPrice)
+            cheapestIndex = i;
+    }
+    resource.setUnitPrice(offers[cheapestIndex].unitPrice);
+    cheapestVendor_[resourceId] = offers[cheapestIndex].vendor;
 }
 
 std::vector<VendorOffer> AcquisitionManager::vendorsFor(const std::string& resourceId) const {
@@ -145,15 +156,20 @@ const PurchaseRecord& AcquisitionManager::purchase(const std::string& id, int qu
 }
 
 const PurchaseRecord& AcquisitionManager::cancel(int orderNo) {
-    auto it = std::find_if(history_.begin(), history_.end(), [orderNo](const PurchaseRecord& rec) {
-        return rec.orderNo == orderNo;
-    });
-    if (it == history_.end()) throw std::invalid_argument("order not found");
-    if (!it->approved || it->cancellation)
+    int recordIndex = -1;
+    for (std::size_t i = 0; i < history_.size(); ++i) {
+        if (history_[i].orderNo == orderNo) {
+            recordIndex = static_cast<int>(i);
+            break;
+        }
+    }
+    if (recordIndex == -1) throw std::invalid_argument("order not found");
+    PurchaseRecord& foundRecord = history_[static_cast<std::size_t>(recordIndex)];
+    if (!foundRecord.approved || foundRecord.cancellation)
         throw std::invalid_argument("only approved purchase orders can be cancelled");
-    if (it->cancelled) throw std::invalid_argument("order is already cancelled");
+    if (foundRecord.cancelled) throw std::invalid_argument("order is already cancelled");
 
-    const PurchaseRecord original = *it;
+    const PurchaseRecord original = foundRecord;
     const Resource& resource = catalog_.get(original.resourceId);
     const int inUse = resource.isDigital() ? catalog_.activeSessions(original.resourceId)
                                            : catalog_.borrowedCopies(original.resourceId);
@@ -163,10 +179,7 @@ const PurchaseRecord& AcquisitionManager::cancel(int orderNo) {
     budgetFor(original.department).refund(original.category, original.quantity,
                                           original.cost, original.resourceId);
     catalog_.addHoldings(original.resourceId, -original.quantity);
-    auto originalIt = std::find_if(history_.begin(), history_.end(), [orderNo](const PurchaseRecord& rec) {
-        return rec.orderNo == orderNo;
-    });
-    originalIt->cancelled = true;
+    history_[static_cast<std::size_t>(recordIndex)].cancelled = true;
     const Money refundPreTax = Money::fromMinor(-original.preTaxCost.minorUnits(),
                                                  original.preTaxCost.currencyCode());
     const Money refundPostTax = Money::fromMinor(-original.cost.minorUnits(),
